@@ -6,6 +6,29 @@ const multiparty = require("multiparty");
 const server = http.createServer();
 const UPLOAD_DIR = path.resolve(__dirname, "..", "target"); // 大文件存储目录
 
+const resolvePost = async req => {
+    return new Promise(resolve => {
+        let chunk = "";
+        req.on("data", data => {
+            chunk += data;
+        })
+        req.on("end", () => {
+            resolve(JSON.parse(chunk));
+        })
+    })
+}
+
+const mergeFileChunk = async (filePath, filename) => {
+    const chunkDir = `${UPLOAD_DIR}/${filename}`;
+    const chunkPaths = await fse.readdir(chunkDir);
+    await fse.writeFile(filePath, "");
+    chunkPaths.forEach(chunkPath => {
+        fse.appendFileSync(filePath, fse.readFileSync(`${chunkDir}/${chunkPath}`));
+        fse.unlinkSync(`${chunkDir}/${chunkPath}`);
+    });
+    fse.rmdirSync(chunkDir); // 合并后删除保存切片的目录
+}
+
 server.on("request", async (req, res) => {
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Headers", "*");
@@ -13,6 +36,22 @@ server.on("request", async (req, res) => {
         res.status = 200;
         res.end();
         return;
+    }
+
+    if (req.url === "/merge") {
+        const data = await resolvePost(req);
+        console.log(data);
+        const {
+            filename
+        } = data;
+        const filePath = `${UPLOAD_DIR}/download/${filename}`;
+        await mergeFileChunk(filePath, filename);
+        res.end(
+            JSON.stringify({
+                code: 0,
+                message: "file merged success"
+            })
+        );
     }
 
     const multipart = new multiparty.Form();
